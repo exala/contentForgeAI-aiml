@@ -30,7 +30,7 @@ def show_welcome_message():
     This application helps you generate and publish AI-written articles in just a few clicks. Here's how to get started:
 
     **1. Set Your Credentials (in the Sidebar):**
-    - **AIML API Key**: Your personal API key for the content and image generation service.
+    - **AI/ML API Key**: Your personal API key for the content and image generation service. (Get your API KEYS from https://aimlapi.com)
     - **WordPress Details**: Your site URL, username, and an **Application Password**. 
       *(Note: You must generate an Application Password from your WordPress profile page under "Users" -> "Profile")*.
 
