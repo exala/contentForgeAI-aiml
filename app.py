@@ -55,11 +55,9 @@ if st.session_state.show_instructions:
 
 # --- Sidebar ---
 with st.sidebar:
-    # --- NEW: Add Logo to the top of the sidebar ---
     logo_url = "https://raw.githubusercontent.com/exala/ContentForgeAI/main/Logo.png"
     st.image(logo_url, width=250)
     st.markdown("---")
-    # --- END of new section ---
 
     st.header("Model Settings")
     model_options = [
@@ -89,16 +87,11 @@ with st.sidebar:
     wp_password = st.text_input("WordPress Password", type="password", key="wp_password")
 
     # Set all credentials and settings as environment variables
-    if selected_model:
-        os.environ['SELECTED_MODEL'] = selected_model
-    if api_key:
-        os.environ['AIML_API_KEY'] = api_key
-    if wp_url:
-        os.environ['WP_URL'] = wp_url
-    if wp_user:
-        os.environ['WP_USER'] = wp_user
-    if wp_password:
-        os.environ['WP_PASSWORD'] = wp_password
+    if selected_model: os.environ['SELECTED_MODEL'] = selected_model
+    if api_key: os.environ['AIML_API_KEY'] = api_key
+    if wp_url: os.environ['WP_URL'] = wp_url
+    if wp_user: os.environ['WP_USER'] = wp_user
+    if wp_password: os.environ['WP_PASSWORD'] = wp_password
 
     st.markdown("---")
 
@@ -119,8 +112,8 @@ with st.sidebar:
 # --- Main Content Area with Tabs ---
 tab1, tab2 = st.tabs(["Single Topic Generation", "Excel Bulk Processing"])
 
-# ... (The rest of your code for tab1 and tab2 remains exactly the same) ...
 with tab1:
+    # ... (Tab 1 code remains exactly the same)
     st.header("Generate a Single Article")
     topic = st.text_input("Enter a keyword or topic", placeholder="e.g., 'Benefits of Solar Energy'")
     publish_to_wp = st.checkbox("Publish to WordPress", key="single_publish")
@@ -131,16 +124,13 @@ with tab1:
             st.error("Please provide all API and WordPress credentials in the sidebar.")
         else:
             try:
-                # 1. Generate Content
                 with st.spinner(f"Generating content with `{selected_model}`..."):
                     prompt = prompt_orchestrator(topic, word_count)
                     raw_content = generate_content(prompt)
                     title, html_content = post_processor(raw_content)
-
                 article_storage_manager(title, html_content, topic)
                 st.success("Article generated and stored in the database!")
 
-                # 2. Generate Image (if requested)
                 generated_image_url = None
                 if generate_featured_image:
                     with st.spinner("Generating featured image..."):
@@ -150,21 +140,17 @@ with tab1:
                         else:
                             st.warning("Could not generate an image.")
 
-                # 3. Display Results
                 with st.container(border=True):
                     st.subheader(title)
-                    if generated_image_url:
-                        st.image(generated_image_url, caption="Generated Featured Image")
+                    if generated_image_url: st.image(generated_image_url, caption="Generated Featured Image")
                     st.markdown(html_content, unsafe_allow_html=True)
                     st.caption(f"Word Count: {len(html_content.split())}")
 
-                # 4. Publish to WordPress (if requested)
                 if publish_to_wp:
                     with st.spinner("Publishing to WordPress..."):
                         featured_media_id = None
-                        if generated_image_url:
-                            featured_media_id = upload_image_to_wordpress(generated_image_url, title)
-
+                        if generated_image_url: featured_media_id = upload_image_to_wordpress(generated_image_url,
+                                                                                              title)
                         success = create_wordpress_post(title, html_content, "publish", featured_media_id)
                         if success:
                             st.success("✅ Successfully published to WordPress!")
@@ -173,66 +159,91 @@ with tab1:
             except Exception as e:
                 st.error(f"An error occurred: {e}")
 
+# --- HEAVILY MODIFIED TAB 2 ---
 with tab2:
     st.header("Generate Articles in Bulk from Excel")
+
+
+    # --- NEW: Dialog function for the completion summary ---
+    @st.dialog("Bulk Run Complete!", width="large")
+    def show_completion_summary(results_df):
+        st.balloons()
+        st.markdown("### ✅ Processing Finished")
+        st.markdown("Here is the summary of the bulk generation task:")
+        st.dataframe(results_df, use_container_width=True)
+        if st.button("Close"):
+            st.rerun()
+
+
     uploaded_file = st.file_uploader("Upload an Excel file (.xlsx, .xls)", type=["xlsx", "xls"])
 
     if uploaded_file is not None:
-        try:
-            df = pd.read_excel(uploaded_file)
-            st.success(f"Successfully uploaded `{uploaded_file.name}` with {len(df)} rows.")
-            with st.expander("Preview Data", expanded=True):
-                st.dataframe(df.head())
+        # --- NEW: Spinner for reading the Excel file ---
+        with st.spinner("Reading and analyzing Excel file..."):
+            try:
+                df = pd.read_excel(uploaded_file)
+                st.success(f"Successfully uploaded `{uploaded_file.name}` with {len(df)} rows.")
+            except Exception as e:
+                st.error(f"Error reading Excel file: {e}")
+                st.stop()  # Stop execution if file is invalid
 
-            column_name = st.selectbox("Select the column containing the topics:", df.columns)
-            publish_bulk_to_wp = st.checkbox("Publish all articles to WordPress", key="bulk_publish")
-            process_button = st.button("Generate All Articles from Excel")
+        with st.expander("Preview Data", expanded=True):
+            st.dataframe(df.head())
 
-            if process_button:
-                if (publish_bulk_to_wp and not all([wp_url, wp_user, wp_password])) or not api_key:
-                    st.error("Please provide all API and WordPress credentials in the sidebar.")
-                else:
-                    topics = df[column_name].dropna().tolist()
-                    st.info(f"Starting to process {len(topics)} topics using `{selected_model}`...")
+        column_name = st.selectbox("Select the column containing the topics:", df.columns)
+        publish_bulk_to_wp = st.checkbox("Publish all articles to WordPress", key="bulk_publish")
+        process_button = st.button("Generate All Articles from Excel")
+
+        if process_button:
+            if (publish_bulk_to_wp and not all([wp_url, wp_user, wp_password])) or not api_key:
+                st.error("Please provide all API and WordPress credentials in the sidebar.")
+            else:
+                topics = df[column_name].dropna().tolist()
+
+                # --- NEW: Persistent spinner for the entire processing job ---
+                with st.spinner(f"Processing {len(topics)} topics... This may take a while. See progress below."):
+                    processed_results = []
                     results_container = st.container(border=True)
-                    progress_bar = st.progress(0)
+                    progress_bar = st.progress(0, text="Starting...")
 
                     for i, topic in enumerate(topics):
+                        result_data = {"Topic": topic, "Status": "", "Details": ""}
+                        progress_bar.progress((i + 1) / len(topics), text=f"Processing: {topic}")
+
                         try:
                             results_container.write(f"---")
                             results_container.write(f"Processing topic ({i + 1}/{len(topics)}): **{topic}**")
 
-                            # 1. Generate Content
                             prompt = prompt_orchestrator(topic, word_count)
                             raw_content = generate_content(prompt)
                             title, html_content = post_processor(raw_content)
                             article_storage_manager(title, html_content, topic)
-                            result_msg = f"✅ **{topic}**: Generated '{title}' ({len(html_content.split())} words)."
+                            result_data["Details"] = f"Generated '{title}' ({len(html_content.split())} words)."
 
-                            # 2. Generate Image
-                            generated_image_url = None
                             if generate_featured_image:
-                                results_container.write("   - Generating image...")
                                 generated_image_url = generate_image(title)
-                                result_msg += " 🖼️ Image generated." if generated_image_url else " ⚠️ Image failed."
+                                result_data[
+                                    "Details"] += " Image generated." if generated_image_url else " Image failed."
+                            else:
+                                generated_image_url = None
 
-                            # 3. Publish to WordPress
                             if publish_bulk_to_wp:
                                 featured_media_id = None
                                 if generated_image_url:
-                                    results_container.write("   - Uploading image to WordPress...")
                                     featured_media_id = upload_image_to_wordpress(generated_image_url, title)
-
-                                results_container.write("   - Publishing post to WordPress...")
                                 success = create_wordpress_post(title, html_content, "publish", featured_media_id)
-                                result_msg += " 📝 Published." if success else " ❌ WP Post failed."
+                                result_data["Details"] += " Published." if success else " WP Post failed."
 
-                            results_container.markdown(result_msg)
+                            result_data["Status"] = "✅ Success"
 
                         except Exception as e:
-                            results_container.error(f"❌ **{topic}**: Failed with error - {e}")
+                            error_message = str(e)
+                            results_container.error(f"❌ Failed: {topic} - {error_message}")
+                            result_data["Status"] = "❌ Error"
+                            result_data["Details"] = error_message
 
-                        # Update progress bar
-                        progress_bar.progress((i + 1) / len(topics))
-        except Exception as e:
-            st.error(f"Error processing Excel file: {e}")
+                        processed_results.append(result_data)
+
+                    # --- NEW: Call the dialog function with the final results ---
+                    results_df = pd.DataFrame(processed_results)
+                    show_completion_summary(results_df)
